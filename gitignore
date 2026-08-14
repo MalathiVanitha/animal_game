@@ -1,0 +1,32 @@
+# node
+node_modules
+node_modules/*
+
+# platforms
+dist/*
+
+#localhost testing
+/index.php
+/playable.html
+
+# misc files
+*.rar
+*.log
+
+# thumb
+.DS_Store
+.DS_Store?
+Thumbs.db
+.idea/
+src/data/images.js
+src/data/json.js
+src/data/sheets.js
+fonts/fonts.css
+dist/
+src/data/sounds.js
+*.zip
+.~lock*
+package-lock.json
+src/data/models.js
+src/data/models2d.js
+src/data/videos.js

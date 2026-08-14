@@ -1,0 +1,174 @@
+
+spine_sheet.png
+size: 256,594
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+sprites2/cube_particle_blue_1
+  rotate: false
+  xy: 86, 45
+  size: 62, 52
+  orig: 62, 52
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_blue_2
+  rotate: false
+  xy: 67, 206
+  size: 65, 56
+  orig: 65, 56
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_green_1
+  rotate: false
+  xy: 129, 152
+  size: 64, 53
+  orig: 64, 53
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_green_2
+  rotate: false
+  xy: 1, 98
+  size: 63, 53
+  orig: 63, 53
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_orange_1
+  rotate: false
+  xy: 56, 1
+  size: 38, 32
+  orig: 38, 32
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_orange_2
+  rotate: false
+  xy: 95, 1
+  size: 39, 32
+  orig: 39, 32
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_purple_1
+  rotate: false
+  xy: 149, 45
+  size: 63, 52
+  orig: 63, 52
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_purple_2
+  rotate: false
+  xy: 65, 98
+  size: 63, 53
+  orig: 63, 53
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_red_1
+  rotate: false
+  xy: 129, 98
+  size: 64, 52
+  orig: 64, 52
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_red_2
+  rotate: false
+  xy: 1, 152
+  size: 63, 53
+  orig: 63, 53
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_yellow_1
+  rotate: false
+  xy: 1, 206
+  size: 65, 54
+  orig: 65, 54
+  offset: 0, 0
+  index: -1
+sprites2/cube_particle_yellow_2
+  rotate: false
+  xy: 65, 152
+  size: 63, 53
+  orig: 63, 53
+  offset: 0, 0
+  index: -1
+sprites2/fx_star
+  rotate: false
+  xy: 1, 263
+  size: 88, 88
+  orig: 88, 88
+  offset: 0, 0
+  index: -1
+sprites2/fx_star_white
+  rotate: false
+  xy: 90, 263
+  size: 88, 88
+  orig: 88, 88
+  offset: 0, 0
+  index: -1
+sprites2/smoke
+  rotate: false
+  xy: 112, 352
+  size: 122, 123
+  orig: 122, 123
+  offset: 0, 0
+  index: -1
+water/bubble
+  rotate: false
+  xy: 135, 1
+  size: 43, 43
+  orig: 43, 43
+  offset: 0, 0
+  index: -1
+water/particles/particle_1
+  rotate: false
+  xy: 21, 1
+  size: 34, 20
+  orig: 34, 20
+  offset: 0, 0
+  index: -1
+water/particles/particle_2
+  rotate: false
+  xy: 133, 206
+  size: 118, 36
+  orig: 118, 36
+  offset: 0, 0
+  index: -1
+water/particles/particle_3
+  rotate: false
+  xy: 1, 45
+  size: 84, 24
+  orig: 84, 24
+  offset: 0, 0
+  index: -1
+water/particles/particle_4
+  rotate: false
+  xy: 179, 1
+  size: 65, 42
+  orig: 65, 42
+  offset: 0, 0
+  index: -1
+water/particles/particle_5
+  rotate: false
+  xy: 1, 1
+  size: 19, 14
+  orig: 19, 14
+  offset: 0, 0
+  index: -1
+water/steam
+  rotate: false
+  xy: 1, 352
+  size: 110, 110
+  orig: 110, 110
+  offset: 0, 0
+  index: -1
+water/water
+  rotate: false
+  xy: 1, 509
+  size: 240, 84
+  orig: 240, 84
+  offset: 0, 0
+  index: -1
+water/water2
+  rotate: false
+  xy: 1, 476
+  size: 254, 32
+  orig: 254, 32
+  offset: 0, 0
+  index: -1

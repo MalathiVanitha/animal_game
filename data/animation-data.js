@@ -1,0 +1,6 @@
+export default {
+
+    "atlas": [],
+
+    "fxAtlas": []
+}
