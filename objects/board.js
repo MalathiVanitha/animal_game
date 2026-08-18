@@ -83,7 +83,7 @@ export class Board extends Phaser.GameObjects.Container {
             fit = 1;
 
         } else {
-            this.y = dimensions.gameHeight / 2 + 200;
+            this.y = dimensions.gameHeight / 2 + 200 - dimensions.topOffset / 2;
         }
 
         // The frame overhangs the grid, so it is the frame that has to fit -

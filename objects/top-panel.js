@@ -488,7 +488,7 @@ export class TopPanel extends Phaser.GameObjects.Container {
         this.layout();
 
         this.x = dimensions.gameWidth / 2;
-        this.y = dimensions.topOffset + (dimensions.isLandscape ? LANDSCAPE_TOP : 0);
+        this.y = dimensions.topOffset + (dimensions.isLandscape ? LANDSCAPE_TOP : 0) - dimensions.topOffset / 2 - dimensions.topOffset / 4;
 
         const visibleWidth = dimensions.actualWidth;
 

@@ -336,7 +336,7 @@ export default class GameScene extends Phaser.Scene {
         let scaleY = dimensions.actualHeight / this.bg.displayHeight;
         let scale = Math.max(scaleX, scaleY);
 
-        this.bg.setScale(scale * 1.1);
+        this.bg.setScale(scale, scale * .99);
 
         if (dimensions.isLandscape) {
 
@@ -345,7 +345,7 @@ export default class GameScene extends Phaser.Scene {
         } else {
 
             this.bg.x = dimensions.gameWidth / 2;
-            this.bg.y = dimensions.gameHeight / 2 - 48 - dimensions.topOffset;
+            this.bg.y = dimensions.gameHeight / 2 + 10;
         }
 
         // The counter first - the board sizes itself to the space left below it.
