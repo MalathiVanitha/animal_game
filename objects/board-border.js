@@ -49,11 +49,10 @@ const FILL_COLOR = 0x36465d;
 const FILL_RADIUS = 11; // follows the curve on the inside of a corner piece
 const FILL_BLEED = .5; // cells overlap by this much so no seam shows between them
 
-export class BoardBorder extends Phaser.GameObjects.Container {
+export class BoardBorder {
 
     constructor(scene, board) {
 
-        super(scene);
         this.scene = scene;
         this.board = board;
 
@@ -62,10 +61,14 @@ export class BoardBorder extends Phaser.GameObjects.Container {
         this.unit = Math.min(board.tileWidth, board.tileHeight) / NATIVE_CELL;
 
         // The frame overhangs the grid, and adjust() sizes the board off this.
-        this.setSize(
-            board.columns * board.tileWidth + 2 * BAR_SIDE * this.unit,
-            board.rows * board.tileHeight + (BAR_TOP + BAR_BOTTOM) * this.unit
-        );
+        this.displayWidth = board.columns * board.tileWidth + 2 * BAR_SIDE * this.unit;
+        this.displayHeight = board.rows * board.tileHeight + (BAR_TOP + BAR_BOTTOM) * this.unit;
+
+        // The frame is laid down in two layers rather than one, so the board can
+        // slot the cell artwork in between them: the slab underneath everything,
+        // and the bars and corners back on top, closing over the edge of the cells.
+        this.fillLayer = scene.add.container();
+        this.frameLayer = scene.add.container();
 
         this.addFill();
         this.addEdges();
@@ -166,7 +169,7 @@ export class BoardBorder extends Phaser.GameObjects.Container {
             }
         }
 
-        this.add(graphics);
+        this.fillLayer.add(graphics);
     }
 
     // One corner of the slab, walked from the cell's horizontal edge round into its
@@ -347,7 +350,7 @@ export class BoardBorder extends Phaser.GameObjects.Container {
         if (width) piece.setDisplaySize(width, height);
         else piece.setScale(this.unit);
 
-        this.add(piece);
+        this.frameLayer.add(piece);
 
         return piece;
     }

@@ -105,10 +105,16 @@ export class Board extends Phaser.GameObjects.Container {
         // Drawn from the pattern, so the frame follows whatever shape the level
         // is - holes included - instead of coming from one fixed piece of art.
         this.boardFrame = new BoardBorder(this.scene, this);
-        this.add(this.boardFrame);
+
+        // The frame goes down in two passes with the cells in between: the slab
+        // first, then the cell artwork on top of it, then the bars and corners
+        // last so the frame closes over the cells sitting against it.
+        this.add(this.boardFrame.fillLayer);
 
         this.boxGrp = this.scene.add.container();
         this.add(this.boxGrp);
+
+        this.add(this.boardFrame.frameLayer);
 
         this.tileGrp = this.scene.add.container();
         this.add(this.tileGrp);
