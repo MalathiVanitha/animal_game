@@ -1,9 +1,15 @@
 import GameConstants from "../data/constants.js";
 import levels from "../data/data.js";
+import { BoardBorder } from "./board-border.js";
 import { Tile } from "./tile.js";
 
 // Breathing room between the board and the edges of the space it is given.
 const BOARD_MARGIN = 24;
+
+// A cell's artwork is drawn a little smaller than the cell it belongs to, so the
+// slab shows through as a gap between one cell and the next, and between the
+// outer cells and the frame around them.
+const CELL_FIT = .9;
 
 export class Board extends Phaser.GameObjects.Container {
     constructor(scene, x, y) {
@@ -80,7 +86,7 @@ export class Board extends Phaser.GameObjects.Container {
             this.y = dimensions.gameHeight / 2 + 200;
         }
 
-        // The frame art overhangs the grid, so it is the frame that has to fit -
+        // The frame overhangs the grid, so it is the frame that has to fit -
         // fitting the grid alone left the frame running off the bottom.
         const contentWidth = Math.max(boardWidth, this.boardFrame.displayWidth);
         const contentHeight = Math.max(boardHeight, this.boardFrame.displayHeight);
@@ -93,9 +99,12 @@ export class Board extends Phaser.GameObjects.Container {
 
     init() {
 
-        this.boardFrame = this.scene.add.sprite(0, 0, "board_base");
-        this.boardFrame.setOrigin(.5);
-        this.boardFrame.setScale(.545, .54);
+        // Authored row by row, used column first.
+        this.pattern = this.transposeArray(this.levelData.pattern);
+
+        // Drawn from the pattern, so the frame follows whatever shape the level
+        // is - holes included - instead of coming from one fixed piece of art.
+        this.boardFrame = new BoardBorder(this.scene, this);
         this.add(this.boardFrame);
 
         this.boxGrp = this.scene.add.container();
@@ -136,7 +145,7 @@ export class Board extends Phaser.GameObjects.Container {
 
                 let box = this.scene.add.sprite(startX, startY, "sheet", this.levelData.cellTile);
                 box.setOrigin(0.5);
-                box.setScale(this.tileScale);
+                box.setScale(this.tileScale * CELL_FIT);
                 this.boxGrp.add(box);
 
                 let tile = new Tile(this.scene, startX, startY);
@@ -272,8 +281,6 @@ export class Board extends Phaser.GameObjects.Container {
 
     createLevel() {
 
-        // Authored row by row, used column first.
-        this.pattern = this.transposeArray(this.levelData.pattern);
         this.boardStatus = [];
 
         for (let i = 0; i < this.columns; i++) {
