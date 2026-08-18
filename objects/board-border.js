@@ -34,20 +34,20 @@ const INNER_SPAN = 42; // edge it covers for trimming, a shade less so the bar t
 // Two cells that meet only at a corner are a different problem again: both of them
 // want a corner piece on the same grid point, facing each other, and the two pieces
 // overlap into one continuous bend that reads as a single board. Such a junction
-// gets one piece instead, drawn with both corners pulled back off the point so the
-// two cells come apart with a gap between them. It covers exactly the ground the two
-// corner pieces covered, so nothing else about the frame has to move for it.
+// gets one piece instead, on which each cell's frame sweeps round on a wide arc that
+// pulls back off the point, so the two cells come apart with a gap between them. It
+// covers exactly the ground the two corner pieces covered, so nothing else has to move.
 const PINCH_HALF = 84; // half the piece, which is square and centred on the junction
-const PINCH_PULL = 20; // how far a corner is pulled back along the diagonal
-const PINCH_HOLD = 38; // ...and how far out the bar stays pulled over before it bends back
-const PINCH_STEPS = 8; // segments used to trace one pinched corner of the slab
-const CORNER_SIZE = 100; // a corner piece is square, so it reaches this far past its inset
+const PINCH_RADIUS = 68; // the arc the frame sweeps round on, along the bar's centre line
+const PINCH_STEPS = 8; // segments used to trace one corner of the slab
+
+// Where a bar's centre line runs, measured out from the cell edge it belongs to.
+const BAR_CENTER_H = 11.25; // top and bottom bars
+const BAR_CENTER_V = 6; // left and right ones
 
 const FILL_COLOR = 0x36465d;
 const FILL_RADIUS = 11; // follows the curve on the inside of a corner piece
 const FILL_BLEED = .5; // cells overlap by this much so no seam shows between them
-
-const smoothstep = (t) => t * t * (3 - 2 * t);
 
 export class BoardBorder extends Phaser.GameObjects.Container {
 
@@ -172,9 +172,10 @@ export class BoardBorder extends Phaser.GameObjects.Container {
     // One corner of the slab, walked from the cell's horizontal edge round into its
     // vertical one. (sx, sy) picks the corner: (1, 1) is the bottom right one.
     //
-    // A pinched corner follows the same line the pinch piece bends along - held back
-    // by the pull near the junction, easing out to the cell's own edge by the far end
-    // of the piece - so the slab stays underneath the bar the whole way round.
+    // A pinched corner follows the wide arc the junction piece sweeps round on. The
+    // slab's edge is that arc brought in by the thickness of each bar, which lands on
+    // an ellipse touching both edges of the cell - so it stays under the bar the whole
+    // way round and still meets the straight edges cleanly at either end.
     cornerPoints(box, sx, sy, pinched, radius) {
 
         const x = sx > 0 ? box.right : box.left;
@@ -183,46 +184,18 @@ export class BoardBorder extends Phaser.GameObjects.Container {
         const points = [];
         const at = (dx, dy) => points.push({ x: x - sx * dx, y: y - sy * dy });
 
-        if (pinched) {
+        const spanX = pinched ? (PINCH_RADIUS - BAR_CENTER_V) * this.unit : radius;
+        const spanY = pinched ? (PINCH_RADIUS - BAR_CENTER_H) * this.unit : radius;
 
-            // A shade less than the piece is pulled back, so the slab tucks under the
-            // bar rather than leaving a seam along it.
-            const pull = (PINCH_PULL - FILL_BLEED * 2) * this.unit;
-            const hold = PINCH_HOLD * this.unit;
-            const curve = FILL_RADIUS * this.unit;
-
-            // How far the bend runs: the reach of the corner piece it replaces, which
-            // is the short way round on the side the cell is on.
-            const reachX = (sx > 0 ? CORNER_INSET_X : CORNER_SIZE - BAR_SIDE) * this.unit;
-            const reachY = (sy > 0 ? CORNER_INSET_Y : CORNER_SIZE - BAR_TOP) * this.unit;
-
-            for (let n = 0; n <= PINCH_STEPS; n++) {
-                const t = n / PINCH_STEPS;
-                at(reachX - (reachX - hold) * t, pull * smoothstep(t));
-            }
-
-            for (let n = 0; n <= PINCH_STEPS; n++) {
-                const a = Math.PI / 2 * n / PINCH_STEPS;
-                at(pull + curve - curve * Math.sin(a), pull + curve - curve * Math.cos(a));
-            }
-
-            for (let n = 0; n <= PINCH_STEPS; n++) {
-                const t = n / PINCH_STEPS;
-                at(pull * smoothstep(1 - t), hold + (reachY - hold) * t);
-            }
-
+        if (!spanX && !spanY) {
+            at(0, 0);
             return points;
         }
 
-        if (radius) {
-            for (let n = 0; n <= PINCH_STEPS; n++) {
-                const a = Math.PI / 2 * n / PINCH_STEPS;
-                at(radius - radius * Math.sin(a), radius - radius * Math.cos(a));
-            }
-            return points;
+        for (let n = 0; n <= PINCH_STEPS; n++) {
+            const a = Math.PI / 2 * n / PINCH_STEPS;
+            at(spanX - spanX * Math.sin(a), spanY - spanY * Math.cos(a));
         }
-
-        at(0, 0);
 
         return points;
     }

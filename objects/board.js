@@ -9,7 +9,7 @@ const BOARD_MARGIN = 24;
 // A cell's artwork is drawn a little smaller than the cell it belongs to, so the
 // slab shows through as a gap between one cell and the next, and between the
 // outer cells and the frame around them.
-const CELL_FIT = .9;
+const CELL_FIT = .95;
 
 export class Board extends Phaser.GameObjects.Container {
     constructor(scene, x, y) {
@@ -562,14 +562,15 @@ export class Board extends Phaser.GameObjects.Container {
 
         g.fillStyle(0xffffff, 1);
         g.beginPath();
-        g.moveTo(half, 0);``
+        g.moveTo(half, 0);
+        ``
         g.lineTo(half + 4, half - 4);
         g.lineTo(size, half);
         g.lineTo(half + 4, half + 4);
         g.lineTo(half, size);
         g.lineTo(half - 4, half + 4);
         g.lineTo(0, half);
-        
+
         g.lineTo(half - 4, half - 4);
         g.closePath();
         g.fillPath();

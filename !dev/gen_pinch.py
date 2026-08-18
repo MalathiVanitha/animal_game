@@ -1,17 +1,22 @@
-"""Bake the diagonal 'pinch' border pieces out of the existing corner + bar art.
+"""Bake the diagonal 'pinch' border pieces out of the existing bar art.
 
-Where two solid cells touch only at a corner, the two outward corner caps land on
-the same grid point facing each other and overlap into an S, so the two cells read
-as one connected board. This bakes one piece for that junction instead: each cap
-pulled back along the diagonal to open a gap between the cells, and the bar tails
-bent back onto their own edges inside the cap's own footprint - so the piece drops
-straight in where the two caps used to go and nothing else about the frame moves.
+Where two solid cells touch only at a corner, both of them want a corner piece on
+that one grid point, facing each other, and the two overlap into a single S bend -
+so the pair reads as one connected board. This bakes one piece for that junction
+instead: each cell's frame sweeps round it on a wide arc that pulls back off the
+point, opening a gap between the two cells.
 
-    python3 gen_pinch.py [pull] [curve] [dest/]
+The arc is swept from the bar art itself - the cross section of the top/bottom bar
+turning into the cross section of the left/right one - so the piece is the same
+tubing as the rest of the frame, just on a lazier curve than a corner piece. It
+lands inside the footprint of the two corner pieces it replaces, so it drops
+straight in and nothing else about the frame has to move.
 
-The pieces the game ships were baked with the defaults below, and board-border.js
-draws the slab to the same shape: PINCH_PULL is this pull and PINCH_HOLD is
-pull + curve. Change one here and change it there too.
+    python3 gen_pinch.py [radius] [dest/]
+
+board-border.js draws the slab to the same curve: PINCH_RADIUS is this radius, and
+BAR_CENTER_H / BAR_CENTER_V are the bar centres printed below. Change one here and
+change it there too.
 """
 import os, sys, json
 from PIL import Image
@@ -21,106 +26,131 @@ SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "
 
 BAR_TOP = 21.5; BAR_SIDE = 16.5; RIGHT_BAR_INSET = 4.5
 CORNER_INSET_X = 82.5; CORNER_INSET_Y = 70
+CORNER_SIZE = 100
 
-PULL = float(sys.argv[1]) if len(sys.argv) > 1 else 20.0   # how far each cap pulls back
-CURVE = float(sys.argv[2]) if len(sys.argv) > 2 else 18.0  # cap kept whole this far from the corner
-DEST = sys.argv[3] if len(sys.argv) > 3 else SRC
+RADIUS = float(sys.argv[1]) if len(sys.argv) > 1 else 68.0
+DEST = sys.argv[2] if len(sys.argv) > 2 else SRC
+
+HALF = 84       # the piece is square and centred on the junction, like the pair it replaces
+SAMPLES = 3     # supersampling per pixel, so the sweep comes out with clean edges
 
 _cache = {}
-def img(n):
-    if n not in _cache: _cache[n] = Image.open(SRC + n + ".png").convert("RGBA")
-    return _cache[n]
+def bar(name):
+    if name not in _cache: _cache[name] = np.array(Image.open(SRC + name + ".png").convert("RGBA")).astype(float)
+    return _cache[name]
 
-def rnd(v):
-    """half-up: round-half-even would drop or double a column every other step
-    along a tail that starts on a .5 offset"""
-    return int(np.floor(v + 0.5))
+# A bar sprite is uniform along its run, so one slice across it is the whole shape:
+# the profile the sweep carries round the corner.
+def profile(name, horizontal):
+    a = bar(name)
+    return a[:, a.shape[1] // 2, :] if horizontal else a[a.shape[0] // 2, :, :]
 
-def smooth(t):
-    t = max(0.0, min(1.0, t))
-    return t * t * (3 - 2 * t)
+# ...and the middle of its solid core is where the centre line of the sweep runs.
+def core_centre(strip):
+    solid = np.where(strip[:, 3] >= 200)[0]
+    return (solid[0] + solid[-1]) / 2
 
-# One half of a junction: the solid cell lying diagonally (sx, sy) from the point.
+# One half of a junction: the solid cell lying diagonally (sx, sy) from the point,
+# with its two bars turning into each other around the corner nearest the point.
 def half(sx, sy):
+    h = "bottom" if sy < 0 else "top"
+    v = "right" if sx < 0 else "left"
+
+    hstrip = profile(h, True)
+    vstrip = profile(v, False)
+
+    # where each bar sits relative to the cell edge it runs along
+    hoff = 0.0 if sy < 0 else -BAR_TOP
+    voff = -RIGHT_BAR_INSET if sx < 0 else -BAR_SIDE
+
     return dict(
-        sx=sx, sy=sy,
-        cap=("bottom" if sy < 0 else "top") + ("_right" if sx < 0 else "_left"),
-        # where the junction sits inside the cap sprite
-        cpx=CORNER_INSET_X if sx < 0 else BAR_SIDE,
-        cpy=CORNER_INSET_Y if sy < 0 else BAR_TOP,
-        # the bars along the cell's two edges, running away from the junction
-        h=dict(sprite="bottom" if sy < 0 else "top", off=0.0 if sy < 0 else -BAR_TOP),
-        v=dict(sprite="right" if sx < 0 else "left", off=-RIGHT_BAR_INSET if sx < 0 else -BAR_SIDE),
+        sx=sx, sy=sy, outx=-sx, outy=-sy,
+        hstrip=hstrip, vstrip=vstrip,
+        hcentre=hoff + core_centre(hstrip),   # the bar centre lines, in junction space
+        vcentre=voff + core_centre(vstrip),
+        hindex=core_centre(hstrip), vindex=core_centre(vstrip),
+        # how far the piece reaches: exactly what the corner piece it replaces covered
+        hspan=CORNER_INSET_X if sx < 0 else CORNER_SIZE - BAR_SIDE,
+        vspan=CORNER_INSET_Y if sy < 0 else CORNER_SIZE - BAR_TOP,
     )
+
+def sample(strip, index, centre, out):
+    """the bar's cross section, read at a signed distance out from its centre line"""
+    at = centre + index * out
+    rgba = np.empty(index.shape + (4,))
+    xs = np.arange(strip.shape[0])
+    for c in range(4):
+        rgba[..., c] = np.interp(at, xs, strip[:, c], left=0, right=0)
+    return rgba
 
 def build(kind):
     halves = [half(-1, -1), half(1, 1)] if kind == "down" else [half(1, -1), half(-1, 1)]
 
-    ext = 0
-    for h in halves:
-        s = img(h["cap"])
-        ext = max(ext, h["cpx"], s.width - h["cpx"], h["cpy"], s.height - h["cpy"])
-    ext = int(np.ceil(ext))
-    W = H = ext * 2
-    canvas = np.zeros((H, W, 4), dtype=float)
+    n = HALF * 2 * SAMPLES
+    step = 1.0 / SAMPLES
+    axis = -HALF + (np.arange(n) + 0.5) * step
+    X, Y = np.meshgrid(axis, axis)
 
-    def blend(x, y, patch):
-        ph, pw = patch.shape[:2]
-        x0 = max(0, x); y0 = max(0, y); x1 = min(W, x + pw); y1 = min(H, y + ph)
-        if x1 <= x0 or y1 <= y0: return
-        sub = patch[y0 - y:y1 - y, x0 - x:x1 - x]
-        base = canvas[y0:y1, x0:x1]
-        sa = sub[..., 3:4] / 255.0
-        ba = base[..., 3:4] / 255.0
-        out_a = sa + ba * (1 - sa)
-        out_rgb = np.where(out_a > 0, (sub[..., :3] * sa + base[..., :3] * ba * (1 - sa)) / np.maximum(out_a, 1e-6), 0)
-        base[..., :3] = out_rgb
-        base[..., 3:4] = out_a * 255
-
-    taper_used = []
+    out = np.zeros((n, n, 4))
 
     for h in halves:
-        cap = np.array(img(h["cap"])).astype(float)
-        sx, sy = h["sx"], h["sy"]
 
-        # Tails: from the outer end of the cap's footprint, sitting exactly on the
-        # bar line, bending over to the pulled back corner.
-        capw, caph = img(h["cap"]).size
-        hspan = h["cpx"] if sx < 0 else capw - h["cpx"]
-        vspan = h["cpy"] if sy < 0 else caph - h["cpy"]
+        cy = h["hcentre"]           # the horizontal bar's centre line
+        cx = h["vcentre"]           # ...and the vertical one's
+        cornerX, cornerY = cx, cy   # where the two would meet if they ran on
 
-        for axis, span in (("h", hspan), ("v", vspan)):
-            bar = h[axis]
-            src = np.array(img(bar["sprite"]))
-            strip = (src[:, src.shape[1] // 2, :] if axis == "h" else src[src.shape[0] // 2, :, :]).astype(float)
-            strip = strip.reshape(-1, 1, 4) if axis == "h" else strip.reshape(1, -1, 4)
-            sign = sx if axis == "h" else sy          # which way the tail runs
-            pull = (sy if axis == "h" else sx) * PULL # which way it is pulled
-            taper = span - CURVE - PULL
-            taper_used.append(round(taper, 1))
-            # from the outer end of the footprint in to where the corner crop takes over
-            for n in range(int(round(taper)) + 1):
-                along = sign * (span - n)
-                dist = abs(along)
-                off = bar["off"] + pull * smooth(1 - (dist - CURVE - PULL) / taper)
-                if axis == "h": blend(rnd(along) + ext, rnd(off) + ext, strip)
-                else: blend(rnd(off) + ext, rnd(along) + ext, strip)
+        # The arc is tangent to both centre lines, pulled back into the cell so the
+        # two halves of the junction come apart.
+        centreX = cornerX + h["sx"] * RADIUS
+        centreY = cornerY + h["sy"] * RADIUS
 
-        # The corner itself, kept whole and slid back along the diagonal.
-        cx0 = 0 if sx > 0 else int(round(h["cpx"] - CURVE))
-        cx1 = cap.shape[1] if sx < 0 else int(round(h["cpx"] + CURVE))
-        cy0 = 0 if sy > 0 else int(round(h["cpy"] - CURVE))
-        cy1 = cap.shape[0] if sy < 0 else int(round(h["cpy"] + CURVE))
-        crop = cap[max(0, cy0):cy1, max(0, cx0):cx1]
-        blend(rnd(max(0, cx0) - h["cpx"] + sx * PULL) + ext,
-              rnd(max(0, cy0) - h["cpy"] + sy * PULL) + ext, crop)
+        u = (X - centreX) * h["outx"]
+        v = (Y - centreY) * h["outy"]
 
-    return Image.fromarray(np.clip(canvas, 0, 255).astype(np.uint8)), ext, taper_used
+        turning = (u >= 0) & (v >= 0)
+        running_v = ~turning & (v < 0)   # past the arc, straight along the vertical bar
 
-info = {"pull": PULL, "curve": CURVE}
+        # distance out from the centre line, and how far round the turn we are
+        dist = np.hypot(u, v) - RADIUS
+        along = np.where(turning, dist, np.where(running_v, (X - cx) * h["outx"], (Y - cy) * h["outy"]))
+        turn = np.where(turning, 1 - np.arctan2(np.maximum(v, 0), np.maximum(u, 0)) / (np.pi / 2),
+                        np.where(running_v, 1.0, 0.0))
+
+        # the straight runs stop where the corner pieces used to stop
+        within = np.where(turning, True,
+                          np.where(running_v, Y * h["sy"] <= h["vspan"], X * h["sx"] <= h["hspan"]))
+
+        hcol = sample(h["hstrip"], along, h["hindex"], h["outy"])
+        vcol = sample(h["vstrip"], along, h["vindex"], h["outx"])
+
+        # cross fade the two cross sections around the turn, on premultiplied alpha
+        t = turn[..., None]
+        pre = hcol[..., :3] * hcol[..., 3:4] * (1 - t) + vcol[..., :3] * vcol[..., 3:4] * t
+        alpha = hcol[..., 3:4] * (1 - t) + vcol[..., 3:4] * t
+        alpha = np.where(within[..., None], alpha, 0)
+
+        rgb = np.where(alpha > 0, pre / np.maximum(alpha, 1e-6), 0)
+
+        # over what is already there
+        sa = alpha / 255.0
+        ba = out[..., 3:4] / 255.0
+        oa = sa + ba * (1 - sa)
+        out[..., :3] = np.where(oa > 0, (rgb * sa + out[..., :3] * ba * (1 - sa)) / np.maximum(oa, 1e-6), 0)
+        out[..., 3:4] = oa * 255
+
+    # back down from the supersampled grid
+    out = out.reshape(HALF * 2, SAMPLES, HALF * 2, SAMPLES, 4)
+    pre = out[..., :3] * out[..., 3:4]
+    alpha = out[..., 3:4].mean(axis=(1, 3))
+    rgb = np.where(alpha > 0, pre.mean(axis=(1, 3)) / np.maximum(alpha, 1e-6), 0)
+
+    flat = np.concatenate([rgb, alpha], axis=-1)
+    return Image.fromarray(np.clip(flat, 0, 255).astype(np.uint8)), halves
+
+info = {"radius": RADIUS, "half": HALF}
 for kind in ("down", "up"):
-    im, ext, tapers = build(kind)
+    im, halves = build(kind)
     im.save(DEST + "pinch_" + kind + ".png")
-    info[kind] = dict(size=im.size[0], half=ext, tapers=tapers)
-    print(kind, im.size, "half extent", ext, "tapers", tapers)
-print(json.dumps(info))
+    info[kind] = [{"cell": [h["sx"], h["sy"]], "hcentre": round(h["hcentre"], 2), "vcentre": round(h["vcentre"], 2)} for h in halves]
+    print(kind, im.size)
+print(json.dumps(info, indent=1))

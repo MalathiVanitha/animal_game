@@ -35,7 +35,7 @@ export class Moves extends Phaser.GameObjects.Container {
 
         this.panel = this.scene.add.sprite(0, 0, "sheet", "Button");
         this.panel.setOrigin(.5);
-        this.panel.setScale(ART +.1);
+        this.panel.setScale(ART + .1);
         this.add(this.panel);
 
         this.label = this.scene.add.text(0, -12, "Moves", {
