@@ -9,6 +9,9 @@ const STAR_GAP = 30;
 const STAR_SCALE = ART * 1.15;
 const HUD_SCALE = .7;
 
+// Moves left at which the customers start to look worried.
+const LOW_MOVES = 3;
+
 export class Moves extends Phaser.GameObjects.Container {
 
     constructor(scene, x, y) {
@@ -90,6 +93,12 @@ export class Moves extends Phaser.GameObjects.Container {
             ease: "Back.easeOut",
         });
 
+        // Crossing into the last few moves once - the customers can see the
+        // order is not going to be filled.
+        if (this.value === LOW_MOVES && this.scene.topPanel) {
+            this.scene.topPanel.reactAll("sad");
+        }
+
         if (this.value <= 0) {
             this.outOfMoves = true;
             if (this.onOut) this.onOut();
@@ -140,6 +149,12 @@ export class Moves extends Phaser.GameObjects.Container {
         this.outOfMoves = false;
         this.valueTxt.setText(this.value);
         this.earnStars(0);
+    }
+
+    destroy(fromScene) {
+
+        this.scene.tweens.killTweensOf([this.valueTxt].concat(this.stars));
+        super.destroy(fromScene);
     }
 
     adjust() {

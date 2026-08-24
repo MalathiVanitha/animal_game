@@ -56,6 +56,13 @@ export class Board extends Phaser.GameObjects.Container {
         this.init();
     }
 
+    // A board is thrown away whole when the level changes, but the cascade it
+    // was running is a chain of awaits that carries on resolving afterwards.
+    // Every step of it checks here before touching the scene again.
+    get alive() {
+        return !!this.scene && !this.retired;
+    }
+
     adjust() {
 
         const boardWidth = this.columns * this.tileWidth;
@@ -132,9 +139,14 @@ export class Board extends Phaser.GameObjects.Container {
             this.onTap(pointer, zone);
         }.bind(this));
 
-        this.scene.input.on('pointerup', function(pointer) {
+        // Kept so the listener can be taken off the scene again when the board
+        // is thrown away between levels - a dead board still answering pointerup
+        // would keep swapping tiles that no longer exist.
+        this.onPointerUp = function(pointer) {
             this.onTapUp(pointer, zone);
-        }.bind(this));
+        }.bind(this);
+
+        this.scene.input.on('pointerup', this.onPointerUp);
 
         this.startHintTimer();
     }
@@ -200,6 +212,12 @@ export class Board extends Phaser.GameObjects.Container {
                             tile.tween = "";
                             tile.yPos = y;
                             tile.y = y;
+
+                            // The level can change while tiles are still falling.
+                            // The board they belong to is gone by the time they
+                            // land - there is nothing left to bounce against, and
+                            // nothing waiting on the callback either.
+                            if (!this.scene) return;
 
                             tile.landTween = this.scene.tweens.chain({
                                 targets: tile,
@@ -701,6 +719,8 @@ export class Board extends Phaser.GameObjects.Container {
 
     async fillEmpty() {
 
+        if (!this.alive) return false;
+
         return new Promise((resolve) => {
 
             let count = 0;
@@ -746,6 +766,8 @@ export class Board extends Phaser.GameObjects.Container {
     }
 
     async checkForSideDrop() {
+
+        if (!this.alive) return false;
 
         return new Promise((resolve) => {
 
@@ -923,6 +945,7 @@ export class Board extends Phaser.GameObjects.Container {
             this.setRandomTile(tile);
             this.tileGrp.add(tile);
 
+            
             tile.x = this.getXFromCol(col);
             tile.y = (-this.tileHeight * n) + originY;
 
@@ -942,12 +965,16 @@ export class Board extends Phaser.GameObjects.Container {
 
     playFallSound() {
 
+        if (!this.alive) return;
+
         this.scene.playSounds("item_fall_" + this.fallOrder);
         this.fallOrder++;
         if (this.fallOrder > 3) this.fallOrder = 1;
     }
 
     async checkForMatches() {
+
+        if (!this.alive) return false;
 
         this.isAutoMatching = true;
         this.hideHint();
@@ -965,18 +992,25 @@ export class Board extends Phaser.GameObjects.Container {
         });
 
         await this.wait(this.fallDelay);
+        if (!this.alive) return false;
 
         const fillPromise = this.fillEmpty();
         this.populateItems();
         await fillPromise;
+        if (!this.alive) return false;
 
         // Keep dropping down, then sideways, until the board stops moving.
         let somethingMoved = true;
 
         while (somethingMoved) {
+
             const fillMoved = await this.fillEmpty();
+            if (!this.alive) return false;
+
             this.populateItems();
+
             const sideMoved = await this.checkForSideDrop();
+            if (!this.alive) return false;
 
             somethingMoved = fillMoved || sideMoved;
         }
@@ -997,12 +1031,16 @@ export class Board extends Phaser.GameObjects.Container {
 
     wait(delay) {
 
+        if (!this.alive) return Promise.resolve();
+
         return new Promise(resolve => {
             this.scene.time.delayedCall(delay, resolve);
         });
     }
 
     enable() {
+
+        if (!this.alive) return;
 
         this.isAutoMatching = false;
         this.canClick = true;
@@ -1268,7 +1306,11 @@ export class Board extends Phaser.GameObjects.Container {
                 if (!this.findMatches().length) {
                     this.swapBack(tile1, tile2);
                 } else {
+                    // The swap made a match, so it costs a move. A swap that
+                    // bounces back is free, and the cascades that fall out of
+                    // this one are part of the same move.
                     this.matched = true;
+                    if (this.scene.moves) this.scene.moves.use(1);
                     this.checkForMatches();
                 }
             }
@@ -1421,5 +1463,45 @@ export class Board extends Phaser.GameObjects.Container {
 
         this.visible = true;
         this.adjust();
+    }
+
+    /**
+     * Levels are played on a fresh board, so the old one has to leave nothing
+     * behind: its hint timer, its scene-level pointer listener and the graphics
+     * object backing the tile mask all outlive the container otherwise.
+     */
+    destroy(fromScene) {
+
+        this.retired = true;
+        this.gameEnded = true;
+        this.canClick = false;
+
+        this.hideHint();
+
+        // Anything still in the air is stopped here rather than left to finish
+        // against a board that no longer has a scene.
+        for (let col = 0; col < this.tiles.length; col++) {
+            for (let row = 0; row < this.tiles[col].length; row++) {
+
+                const tile = this.tiles[col][row];
+                if (tile) this.stopDropTweens(tile);
+            }
+        }
+
+        for (let i = 0; i < this.tilesPool.length; i++) {
+            this.stopDropTweens(this.tilesPool[i]);
+        }
+
+        if (this.onPointerUp && this.scene && this.scene.input) {
+            this.scene.input.off('pointerup', this.onPointerUp);
+            this.onPointerUp = null;
+        }
+
+        if (this.maskGraphics) {
+            this.maskGraphics.destroy();
+            this.maskGraphics = null;
+        }
+
+        super.destroy(fromScene);
     }
 }

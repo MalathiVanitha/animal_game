@@ -9,6 +9,11 @@ import { TopPanel } from '../objects/top-panel.js';
 import { Moves } from '../objects/moves.js';
 import { Life } from '../objects/life.js';
 import { UIPanel } from '../objects/ui-panel.js';
+import levels from '../data/data.js';
+
+// Ten levels, played in order. The table is the only place that decides how
+// many there are.
+const LAST_LEVEL = Object.keys(levels).length;
 
 export default class GameScene extends Phaser.Scene {
 
@@ -89,7 +94,130 @@ export default class GameScene extends Phaser.Scene {
         this.cta = new CTA(this, 0, 0, this);
         this.gameGroup.add(this.cta)
 
+        this.banner = this.add.text(0, 0, "", {
+            fontFamily: "Oduda-Bold-Demo",
+            fontSize: 58,
+            fill: "#ffffff",
+            align: "center",
+            stroke: "#6b3a12",
+            strokeThickness: 8,
+        }).setOrigin(.5);
+        this.banner.setAlpha(0);
+        this.gameGroup.add(this.banner);
+
         this.setPositions();
+
+        // The first level arrives the same way every later one does.
+        this.startLevel(true);
+    }
+
+    /**
+     * Opens a level: the customers walk on to the counter, the board stays
+     * locked until they are in place, and the level number is announced.
+     * @param {boolean} first true on the very first level of the session
+     */
+    startLevel(first = false) {
+
+        this.gameOver = false;
+        this.board.canClick = false;
+        this.board.gameEnded = false;
+
+        this.showBanner("Level " + this.level, first ? 0 : 250);
+
+        this.topPanel.walkIn(() => {
+
+            this.board.canClick = true;
+            this.board.gameStarted = true;
+            this.board.startHintTimer();
+        });
+    }
+
+    /**
+     * The level is served. The customers leave with their food, and once the
+     * counter is empty the next level is built in place of this one.
+     */
+    nextLevel() {
+
+        this.board.canClick = false;
+        this.board.gameEnded = true;
+        this.board.hideHint();
+
+        this.showBanner("Level " + this.level + " Complete!", 200);
+
+        // Anyone still at the counter cheers the level home before they leave.
+        this.topPanel.reactAll("happy");
+
+        // Long enough for the last order's plate bounce and star burst to land
+        // before the customer turns to leave with it.
+        this.time.delayedCall(1200, () => {
+
+            this.topPanel.walkOut(() => {
+
+                this.level++;
+                this.buildLevel();
+                this.startLevel();
+            });
+        });
+    }
+
+    /**
+     * Swaps the level-shaped objects - board, counter and move counter - for the
+     * ones the new level asks for. Everything else (background, HUD strip, lives,
+     * the flight layer and the end card) is level agnostic and stays put.
+     */
+    buildLevel() {
+
+        this.board.destroy();
+        this.topPanel.destroy();
+        this.moves.destroy();
+
+        this.board = new Board(this, 0, 0, this);
+        this.gameGroup.add(this.board);
+
+        this.topPanel = new TopPanel(this, 0, 0, this);
+        this.gameGroup.add(this.topPanel);
+
+        this.moves = new Moves(this, 0, 0, this);
+        this.moves.onOut = () => this.checkWin(this.topPanel.isComplete());
+        this.gameGroup.add(this.moves);
+
+        // The new objects went on top of the stack, so the layers that have to
+        // stay above the board are lifted back over them.
+        this.gameGroup.bringToTop(this.uiPanel);
+        this.gameGroup.bringToTop(this.moves);
+        this.gameGroup.bringToTop(this.life);
+        this.gameGroup.bringToTop(this.flyGrp);
+        this.gameGroup.bringToTop(this.cta);
+        this.gameGroup.bringToTop(this.banner);
+
+        this.setPositions();
+    }
+
+    /**
+     * The line above the board: the level number as it starts, the result when
+     * the session ends. An end message holds instead of fading away.
+     */
+    showBanner(text, delay = 0, hold = false) {
+
+        if (!this.banner) return;
+
+        this.tweens.killTweensOf(this.banner);
+
+        this.banner.setText(text);
+        this.banner.setAlpha(0);
+        this.banner.setScale(.6);
+
+        this.tweens.chain({
+            targets: this.banner,
+            delay: delay,
+            tweens: hold ? [
+                { alpha: 1, scale: 1, duration: 340, ease: "Back.easeOut" },
+            ] : [
+                { alpha: 1, scale: 1, duration: 340, ease: "Back.easeOut" },
+                { scale: 1, duration: 700 },
+                { alpha: 0, scale: 1.15, duration: 320, ease: "Sine.easeIn" },
+            ]
+        });
     }
 
     hideUI() {
@@ -101,10 +229,22 @@ export default class GameScene extends Phaser.Scene {
         this.gameOver = true;
         this.board.gameEnded = true;
 
+        // Serving every order moves the player on - only the last level, or
+        // running out of moves, ends the session.
+        if (gameWin && this.level < LAST_LEVEL) {
+            this.nextLevel();
+            return;
+        }
+
         if (gameWin) {
             this.cta.userWon = true;
+            this.topPanel.reactAll("happy");
+            this.showBanner("All " + LAST_LEVEL + " Levels Served!", 400, true);
         } else {
             this.cta.userWon = false;
+            // Nobody is getting served now - the customers left waiting sag.
+            this.topPanel.setMoodAll("sad");
+            this.showBanner("Out of Moves", 400, true);
         }
         this.board.canClick = false;
         this.time.addEvent({
@@ -355,6 +495,13 @@ export default class GameScene extends Phaser.Scene {
         this.moves.adjust();
         this.life.adjust();
         this.cta.adjust();
+
+        if (this.banner) {
+            // Just above the board's frame, in the gap under the stall.
+            const boardTop = this.board.y - ((this.board.rows * this.board.tileHeight * this.board.scaleY) / 2);
+            this.banner.x = dimensions.gameWidth / 2;
+            this.banner.y = boardTop - 34;
+        }
     }
 
     // Live pointer position - the board reads this every frame while dragging, so
