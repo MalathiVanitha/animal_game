@@ -47,6 +47,17 @@ export class Board extends Phaser.GameObjects.Container {
         this.landSquash = .16;
         this.hintDelay = 4000;
 
+        // How long one item takes to slide one cell diagonally into a hole. Kept
+        // level with a one cell fall so an item that comes in from the side moves
+        // at the same speed as one coming straight down beside it.
+        this.sideDropSpeed = this.fallTimePerCell;
+
+        // How often the cascade looks for the next thing that can move. Short
+        // enough that an item finishing a slide is claimed by the hole under it
+        // while it is still moving, rather than stopping and setting off again.
+        this.cascadeTick = 30;
+        this.activeSideDrops = 0;
+
         // Flags
         this.canClick = true;
         this.gameStarted = true;
@@ -181,7 +192,20 @@ export class Board extends Phaser.GameObjects.Container {
 
                 tile.dropTween = function(tile, y, callback) {
 
+                    // Gravity can claim an item that is still sliding in
+                    // diagonally. Two tweens on one sprite would fight over x,
+                    // so this one takes the sideways travel over and carries it
+                    // into the fall instead of leaving it half a cell out.
+                    let slideX;
+
+                    if (tile.sideDropTween) {
+                        this.stopSideDrop(tile);
+                        slideX = tile.x;
+                    }
+
                     this.stopDropTweens(tile);
+
+                    tile.xPos = this.getXFromCol(tile.i);
 
                     const oldY = tile.y;
                     const distance = Math.abs(oldY - y) / this.tileHeight;
@@ -198,13 +222,21 @@ export class Board extends Phaser.GameObjects.Container {
 
                     // A one cell nudge barely reacts, a full column drop lands hard.
                     const impact = Phaser.Math.Clamp(distance / 4, .3, 1);
-                    const dip = this.tileHeight * .055 * impact;
-                    const hop = this.tileHeight * .09 * impact;
-                    const squash = this.landSquash * impact;
+
+                    // What is left of the sideways travel is spent early in the
+                    // fall rather than held all the way down, so the item is back
+                    // over its column well before it lands.
+                    const carry = slideX === undefined ? null : {
+                        from: slideX,
+                        to: tile.xPos,
+                        duration: Math.min(fallDuration, this.sideDropSpeed * .6),
+                        ease: 'Sine.easeOut'
+                    };
 
                     tile.tween = this.scene.tweens.add({
                         targets: tile,
                         y: { from: oldY, to: y },
+                        ...(carry ? { x: carry } : {}),
                         duration: fallDuration,
                         ease: 'Quad.easeIn',
                         onComplete: () => {
@@ -219,40 +251,7 @@ export class Board extends Phaser.GameObjects.Container {
                             // nothing waiting on the callback either.
                             if (!this.scene) return;
 
-                            tile.landTween = this.scene.tweens.chain({
-                                targets: tile,
-                                tweens: [
-                                    // Hits the cell and compresses against it.
-                                    {
-                                        y: y + dip,
-                                        scaleX: this.tileScale * (1 + squash),
-                                        scaleY: this.tileScale * (1 - squash),
-                                        duration: 60 + 40 * impact,
-                                        ease: 'Quad.easeOut',
-                                    },
-                                    // Springs back out and lifts a little.
-                                    {
-                                        y: y - hop,
-                                        scaleX: this.tileScale * (1 - squash * .4),
-                                        scaleY: this.tileScale * (1 + squash * .4),
-                                        duration: 80 + 50 * impact,
-                                        ease: 'Sine.easeOut',
-                                    },
-                                    // Falls back onto the cell and settles.
-                                    {
-                                        y: y,
-                                        scaleX: this.tileScale,
-                                        scaleY: this.tileScale,
-                                        duration: 90 + 50 * impact,
-                                        ease: 'Quad.easeIn',
-                                    }
-                                ],
-                                onComplete: () => {
-                                    tile.landTween = "";
-                                    tile.y = y;
-                                    tile.setScale(this.tileScale);
-                                }
-                            });
+                            this.bounceTile(tile, y, impact);
 
                             callback();
                         }
@@ -285,6 +284,64 @@ export class Board extends Phaser.GameObjects.Container {
             tile.y = tile.yPos;
             tile.setScale(this.tileScale);
         }
+    }
+
+    // The settle an item does once it has arrived on its cell, whether it got there
+    // by falling or by sliding in from the side. Cancellable: a chute that carries
+    // on takes the bounce off again on its next step, so only the item that has
+    // actually come to rest is seen to bounce.
+    bounceTile(tile, y, impact) {
+
+        const dip = this.tileHeight * .055 * impact;
+        const hop = this.tileHeight * .09 * impact;
+        const squash = this.landSquash * impact;
+
+        tile.landTween = this.scene.tweens.chain({
+            targets: tile,
+            tweens: [
+                // Hits the cell and compresses against it.
+                {
+                    y: y + dip,
+                    scaleX: this.tileScale * (1 + squash),
+                    scaleY: this.tileScale * (1 - squash),
+                    duration: 60 + 40 * impact,
+                    ease: 'Quad.easeOut',
+                },
+                // Springs back out and lifts a little.
+                {
+                    y: y - hop,
+                    scaleX: this.tileScale * (1 - squash * .4),
+                    scaleY: this.tileScale * (1 + squash * .4),
+                    duration: 80 + 50 * impact,
+                    ease: 'Sine.easeOut',
+                },
+                // Falls back onto the cell and settles.
+                {
+                    y: y,
+                    scaleX: this.tileScale,
+                    scaleY: this.tileScale,
+                    duration: 90 + 50 * impact,
+                    ease: 'Quad.easeIn',
+                }
+            ],
+            onComplete: () => {
+                tile.landTween = "";
+                tile.y = y;
+                tile.setScale(this.tileScale);
+            }
+        });
+    }
+
+    // A slide is stopped through here and nowhere else: the count of items still
+    // travelling sideways is what tells the cascade the board is not at rest yet,
+    // and a slide dropped without going through here leaves that count too high.
+    stopSideDrop(tile) {
+
+        if (!tile || !tile.sideDropTween) return;
+
+        tile.sideDropTween.stop();
+        tile.sideDropTween = "";
+        this.activeSideDrops--;
     }
 
     transposeArray(original) {
@@ -565,13 +622,15 @@ export class Board extends Phaser.GameObjects.Container {
 
         this.stopDropTweens(tile);
 
+        // Pooled mid-slide it would keep tweening after another cell takes it over.
+        this.stopSideDrop(tile);
+
         // Food somebody ordered flies to them instead of popping on the spot.
         const collected = this.scene.collectTile(this.tileTypes[tile.type], tile.x, tile.y, order);
 
         this.showMatchFx(tile, collected);
 
         tile.visible = false;
-        tile.sideDropTween = "";
         tile.setScale(this.tileScale);
         this.tilesPool.push(tile);
     }
@@ -717,130 +776,175 @@ export class Board extends Phaser.GameObjects.Container {
         );
     }
 
-    async fillEmpty() {
+    // Starts every straight fall that can begin now and returns as soon as they are
+    // under way: the pass that follows is free to send the next item down the same
+    // column while this one is still in the air.
+    fillEmpty() {
 
         if (!this.alive) return false;
 
-        return new Promise((resolve) => {
+        let isDrop = false;
 
-            let count = 0;
-            let total = 0;
-            let isDrop = false;
+        for (let col = 0; col < this.columns; col++) {
+            for (let row = this.rows - 1; row >= 0; row--) {
 
-            for (let col = 0; col < this.columns; col++) {
-                for (let row = this.rows - 1; row >= 0; row--) {
+                if (!this.tiles[col][row]) continue;
+                if (this.boardStatus[col][row] !== GameConstants.DESTROYED) continue;
 
-                    if (this.tiles[col][row] && this.boardStatus[col][row] === GameConstants.DESTROYED) {
+                for (let k = row - 1; k >= 0; k--) {
 
-                        for (let k = row - 1; k >= 0; k--) {
-                            const tileAbove = this.tiles[col][k];
+                    const tileAbove = this.tiles[col][k];
 
-                            if (tileAbove && this.boardStatus[col][k] !== GameConstants.DESTROYED && !tileAbove.sideDropTween) {
+                    if (!tileAbove || this.boardStatus[col][k] === GameConstants.DESTROYED) continue;
 
-                                // An empty cell is a wall - nothing falls through it.
-                                if (this.boardStatus[col][k] === GameConstants.EMPTY) break;
+                    // An empty cell is a wall - nothing falls through it.
+                    if (this.boardStatus[col][k] === GameConstants.EMPTY) break;
 
-                                total++;
-                                isDrop = true;
+                    isDrop = true;
 
-                                this.tiles[col][row] = tileAbove;
-                                this.boardStatus[col][k] = GameConstants.DESTROYED;
+                    this.tiles[col][row] = tileAbove;
+                    this.boardStatus[col][k] = GameConstants.DESTROYED;
 
-                                tileAbove.j = row;
-                                this.boardStatus[col][row] = GameConstants.NORMAL;
+                    tileAbove.j = row;
+                    this.boardStatus[col][row] = GameConstants.NORMAL;
 
-                                tileAbove.dropTween(this.getYFromRow(row), () => {
-                                    count++;
-                                    if (count === total) resolve(true);
-                                });
+                    tileAbove.dropTween(this.getYFromRow(row), () => {});
 
-                                break;
-                            }
-                        }
-                    }
+                    break;
                 }
             }
+        }
 
-            if (!isDrop) resolve(false);
-        });
+        return isDrop;
     }
 
-    async checkForSideDrop() {
+    // Looks for items that can slide diagonally into a hole and starts them. Like
+    // fillEmpty it returns as soon as the moves are under way.
+    checkForSideDrop() {
 
         if (!this.alive) return false;
 
-        return new Promise((resolve) => {
+        let moved = false;
 
-            const fallDuration = this.tweenSpeed;
-            const tweens = [];
-            const movedTiles = [];
+        for (let col = 0; col < this.columns; col++) {
+            for (let row = this.rows - 1; row >= 1; row--) {
 
-            const slide = (tile, col, row) => {
+                if (!this.tiles[col][row]) continue;
+                if (this.boardStatus[col][row] !== GameConstants.DESTROYED) continue;
 
-                this.boardStatus[tile.i][tile.j] = GameConstants.DESTROYED;
-                this.boardStatus[col][row] = GameConstants.NORMAL;
-                this.tiles[col][row] = tile;
+                // Only a cell sealed off from its own column is filled sideways.
+                if (this.boardStatus[col][row - 1] !== GameConstants.EMPTY) continue;
 
-                const newX = this.getXFromCol(col);
-                const newY = this.getYFromRow(row);
+                if (col < this.columns - 1 && this.checkRightTop({ i: col, j: row })) {
 
-                this.stopDropTweens(tile);
+                    if (this.startSideDrop(this.tiles[col + 1][row - 1], col, row)) moved = true;
 
-                this.scene.tweens.add({
-                    targets: tile,
-                    scale: { from: tile.scaleX, to: tile.scaleX / 2 },
-                    duration: fallDuration / 2,
-                    yoyo: true,
-                });
+                } else if (col > 0 && this.checkLeftTop({ i: col, j: row })) {
 
-                tweens.push(new Promise((tweenResolve) => {
-                    tile.sideDropTween = this.scene.tweens.add({
-                        targets: tile,
-                        x: newX,
-                        y: newY,
-                        duration: fallDuration,
-                        ease: 'Sine.easeOut',
-                        onComplete: () => {
-                            tile.xPos = newX;
-                            tile.yPos = newY;
-                            tile.sideDropTween = "";
-                            tweenResolve();
-                        }
-                    });
-                }));
-
-                tile.i = col;
-                tile.j = row;
-                movedTiles.push(tile);
-            };
-
-            for (let col = 0; col < this.columns; col++) {
-                for (let row = this.rows - 1; row >= 1; row--) {
-
-                    const aboveBlocked = this.boardStatus[col][row - 1] === GameConstants.EMPTY;
-
-                    if (this.tiles[col][row] && this.boardStatus[col][row] === GameConstants.DESTROYED && aboveBlocked) {
-
-                        if (col < this.columns - 1 && this.checkRightTop({ i: col, j: row })) {
-
-                            const rightTopTile = this.tiles[col + 1][row - 1];
-                            if (!movedTiles.includes(rightTopTile)) slide(rightTopTile, col, row);
-
-                        } else if (col > 0 && this.checkLeftTop({ i: col, j: row })) {
-
-                            const leftTopTile = this.tiles[col - 1][row - 1];
-                            if (!movedTiles.includes(leftTopTile)) slide(leftTopTile, col, row);
-                        }
-                    }
+                    if (this.startSideDrop(this.tiles[col - 1][row - 1], col, row)) moved = true;
                 }
             }
+        }
 
-            if (tweens.length) {
-                Promise.all(tweens).then(() => resolve(true));
-            } else {
-                resolve(false);
+        return moved;
+    }
+
+    // Slides one item diagonally into (col, row); returns whether it moved. An item
+    // that is still sliding from the last pass is re-aimed from wherever it has got
+    // to rather than made to land first, so a chute of items flows instead of stepping.
+    startSideDrop(tile, col, row) {
+
+        if (!tile) return false;
+
+        const chaining = !!tile.sideDropTween;
+
+        if (chaining) this.stopSideDrop(tile);
+
+        this.boardStatus[tile.i][tile.j] = GameConstants.DESTROYED;
+        this.boardStatus[col][row] = GameConstants.NORMAL;
+        this.tiles[col][row] = tile;
+
+        tile.i = col;
+        tile.j = row;
+
+        this.stopDropTweens(tile);
+
+        const newX = this.getXFromCol(col);
+        const newY = this.getYFromRow(row);
+
+        // Timed from how far it still has to travel rather than given a flat
+        // duration, so an item re-aimed halfway down a chute keeps the speed it
+        // already had instead of taking a whole fresh slide over the last half.
+        const step = Math.hypot(this.tileWidth, this.tileHeight);
+        const distance = Math.hypot(newX - tile.x, newY - tile.y);
+
+        const duration = Phaser.Math.Clamp(
+            this.sideDropSpeed * (distance / step),
+            this.sideDropSpeed * .25,
+            this.sideDropSpeed * 2
+        );
+
+        // An item starting from rest has to pick up speed, one already sliding
+        // must not be made to slow down and set off again at every hole it
+        // passes - that stepping is what a chute of items reads as.
+        const ease = chaining ? 'Linear' : 'Quad.easeIn';
+
+        this.activeSideDrops++;
+
+        tile.sideDropTween = this.scene.tweens.add({
+            targets: tile,
+            x: newX,
+            y: newY,
+            duration: duration,
+            ease: ease,
+            onComplete: () => {
+
+                tile.sideDropTween = "";
+                this.activeSideDrops--;
+
+                tile.x = newX;
+                tile.y = newY;
+                tile.xPos = newX;
+                tile.yPos = newY;
+
+                if (!this.scene) return;
+
+                // Lands like anything else that arrives on a cell. If the chute
+                // carries on, the next step cancels this before it is seen.
+                this.bounceTile(tile, newY, .3);
             }
         });
+
+        return true;
+    }
+
+    // True while anything is still travelling to the cell it already owns on the grid.
+    isFalling() {
+
+        if (this.activeSideDrops > 0) return true;
+
+        for (let col = 0; col < this.columns; col++) {
+            for (let row = 0; row < this.rows; row++) {
+
+                const tile = this.tiles[col][row];
+                if (tile && tile.tween && tile.tween.isPlaying && tile.tween.isPlaying()) return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Waits for the board to come to rest on screen. Capped: a tween that never
+    // reports done must not be able to hang the turn with the board locked.
+    async waitForFall(timeout = 2000) {
+
+        const started = Date.now();
+
+        while (this.isFalling() && Date.now() - started < timeout) {
+
+            await this.wait(this.cascadeTick);
+            if (!this.alive) return;
+        }
     }
 
     populateItems() {
@@ -994,26 +1098,33 @@ export class Board extends Phaser.GameObjects.Container {
         await this.wait(this.fallDelay);
         if (!this.alive) return false;
 
-        const fillPromise = this.fillEmpty();
+        this.fillEmpty();
         this.populateItems();
-        await fillPromise;
-        if (!this.alive) return false;
 
-        // Keep dropping down, then sideways, until the board stops moving.
-        let somethingMoved = true;
+        // Keep the cascade running. Every tick starts whatever can move now - a
+        // straight fall, a new item off the top, a diagonal slide - without waiting
+        // for the moves already in the air, so the board empties as one continuous
+        // stream rather than one item per tween.
+        let passes = 0;
 
-        while (somethingMoved) {
+        while (passes++ < 500) {
 
-            const fillMoved = await this.fillEmpty();
-            if (!this.alive) return false;
+            const fillMoved = this.fillEmpty();
 
             this.populateItems();
 
-            const sideMoved = await this.checkForSideDrop();
-            if (!this.alive) return false;
+            const sideMoved = this.checkForSideDrop();
 
-            somethingMoved = fillMoved || sideMoved;
+            if (!fillMoved && !sideMoved && this.activeSideDrops === 0) break;
+
+            await this.wait(this.cascadeTick);
+            if (!this.alive) return false;
         }
+
+        // The grid is settled, but the last items are still on screen. What follows -
+        // the next match check, giving input back - used to be able to count on that.
+        await this.waitForFall();
+        if (!this.alive) return false;
 
         this.scene.time.addEvent({
             delay: this.fallDelay * 1.2,
@@ -1484,12 +1595,16 @@ export class Board extends Phaser.GameObjects.Container {
             for (let row = 0; row < this.tiles[col].length; row++) {
 
                 const tile = this.tiles[col][row];
-                if (tile) this.stopDropTweens(tile);
+                if (!tile) continue;
+
+                this.stopDropTweens(tile);
+                this.stopSideDrop(tile);
             }
         }
 
         for (let i = 0; i < this.tilesPool.length; i++) {
             this.stopDropTweens(this.tilesPool[i]);
+            this.stopSideDrop(this.tilesPool[i]);
         }
 
         if (this.onPointerUp && this.scene && this.scene.input) {
